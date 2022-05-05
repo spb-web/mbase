@@ -8,15 +8,12 @@ module.exports = async (deployer) => {
   await deployer.deploy(StakingToken)
   const earningTokenInstance = await EarningToken.deployed()
   const stakingTokenInstance = await StakingToken.deployed()
-console.log(1)
+
   await deployer.deploy(
     MBaseFarm,
     stakingTokenInstance.address,
     earningTokenInstance.address,
-    rate.holderBonus,
-    rate.schedule,
   )
-  console.log(1)
   const mBaseFarmInstance = await MBaseFarm.deployed()
   const totalDistribution = await mBaseFarmInstance.totalDistribution()
 
@@ -24,5 +21,5 @@ console.log(1)
   await earningTokenInstance.approve(mBaseFarmInstance.address, totalDistribution)
   await mBaseFarmInstance.launchStaking()
 
-  console.log((await mBaseFarmInstance.startedStaking()).toString(),(await mBaseFarmInstance.blockNumber()).toString(), totalDistribution.toString())
+  // console.log((await mBaseFarmInstance.startedStaking()).toString(),(await mBaseFarmInstance._blockNumber()).toString(), totalDistribution.toString())
 }

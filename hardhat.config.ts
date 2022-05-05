@@ -7,7 +7,7 @@ export default {
     sourcesDir: 'contracts',
     outputDir: '.',
     theme: 'markdown',
-    collapseNewlines: true,
+    collapseNewlines: false,
     pageExtension: '.md',
   },
   solidity: {

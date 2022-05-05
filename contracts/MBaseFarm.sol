@@ -21,12 +21,12 @@ contract MBaseFarm is Context {
    * @param reward total amount of MBase accrued to the farmer.
    * @param claimedReward total amount of MBase the farmer transferred from the service already.
    */
-  struct FarmerState {
-    uint256 holderBonusStart;
+  struct StakerState {
+    uint128 holderBonusStart;
     uint128 amount;
-    uint128 initialRewardRate;
+    uint256 initialRewardRate;
     uint128 reward;
-    uint256 claimedReward;
+    uint128 claimedReward;
     uint256 holderBonusReward;
     uint256 holderBonusClaimedReward;
     uint256 holderBonusInitalRate;
@@ -35,13 +35,13 @@ contract MBaseFarm is Context {
   /**
    * @dev The block number from which farming is started.
    */
-  uint256 public startedStaking;
+  uint128 public startedStaking;
 
   /**
    * @dev Items in `holderBonusAverageRate` and `rewardSchedule` are multiplied by 10^6 to get more accuracy.
    * @notice Divide the item of `holderBonusAverageRate` or `rewardSchedule` by this variable to get the actual value of the item.
    */
-  uint256 public constant denominator = 10**6;
+  uint128 public constant denominator = 10**6;
   /**
    * @dev The schedule of distribution.
    * @notice Divide the item of `holderBonusAverageRate` by `denominator` variable to get the actual value of the item.
@@ -49,22 +49,22 @@ contract MBaseFarm is Context {
    * key - epoch number;
    * value - Average value of items between 0 and the index of item;
    */
-  uint128[] public holderBonusAverageRate;
+  uint256[] public holderBonusAverageRate;
   /**
    * @dev Every 201600 blocks the holder bonus changes.
    * @notice 201600 blocks per a week.
    */
-  uint256 public constant holderBonusEpochDuration = 201600;
+  uint128 public constant holderBonusEpochDuration = 10;
 
   /**
    * @dev Every 201600 blocks the distribution changes.
    * @notice 201600 blocks per a week.
    */
-  uint256 public constant scheduleEpochDuration = 201600;
+  uint128 public constant scheduleEpochDuration = 10;
   /**
    * @dev The total amount for staking rewards.
    */
-  uint128 public totalDistribution;
+  uint256 public totalDistribution;
   /**
    * @dev The number of last ended schedule epoch.
    */
@@ -76,7 +76,7 @@ contract MBaseFarm is Context {
   /**
    * @dev maxEpochIndex
    */
-  uint256 public maxEpochIndex;
+  uint128 public maxEpochIndex;
   /**
    * @dev The schedule of distribution.
    * @notice Divide the item of `rewardSchedule` by `denominator` variable to get the actual value of the item.
@@ -84,7 +84,7 @@ contract MBaseFarm is Context {
    * key - epoch number;
    * value - cumulative total supply;
    */
-  uint128[] public rewardSchedule;
+  uint256[] public rewardSchedule;
   /**
    * @dev How many MBase minted per one LP.
    * @notice Never decreases.
@@ -93,29 +93,36 @@ contract MBaseFarm is Context {
   /**
    * @dev Amount of LP currently staked in the service.
    */
-  uint256 public totalStaked;
+  uint128 public totalStaked;
 
   /**
-   * MBaseFarm.FarmerState
+   * MBaseFarm.StakerState
    */
-  mapping (address => FarmerState) public farmerState;
+  mapping (address => StakerState) public stakerState;
 
   address public immutable stakingToken;
   address public immutable earningToken;
-  uint256 public immutable stakingTokenDecimalsDenominator;
 
-  constructor(
-    address _stakingToken,
-    address _earningToken,
-    uint128[] memory _holderBonusAverageRate,
-    uint128[] memory _rewardSchedule
-  ) {
-    require(_holderBonusAverageRate.length == _rewardSchedule.length && _rewardSchedule.length > 0, "Invalid length");
-    require(_holderBonusAverageRate[0] == 0, "The first item of `holderBonusAverageRate` should be equal zero");
-    require(_rewardSchedule[0] == 0, "The first item of `rewardSchedule` should be equal zero");
+
+  event StakingLaunched(uint128 block, uint256 totalDistribution);
+  event Staked(address indexed owner, address indexed from, uint128 amount);
+  event UpdateHistoricalRewardRate(uint256 rate);
+  event Rewarded(address indexed owner, address indexed to, uint128 amount);
+
+  constructor(address _stakingToken, address _earningToken) {
     require(_stakingToken != address(0), "Invalid staking token address");
     require(_earningToken != address(0), "Invalid earning token address");
 
+    stakingToken = _stakingToken;
+    earningToken = _earningToken;
+  }
+
+  function setSchedule(uint256[] memory _holderBonusAverageRate, uint256[] memory _rewardSchedule) public {
+    require(startedStaking == 0, "[launchStaking]: Staking is already launched");
+    require(_holderBonusAverageRate.length == _rewardSchedule.length && _rewardSchedule.length > 0, "Invalid length");
+    require(_holderBonusAverageRate[0] == 0, "The first item of `holderBonusAverageRate` should be equal zero");
+    require(_rewardSchedule[0] == 0, "The first item of `rewardSchedule` should be equal zero");
+    
     // Хуй знает почему, но не работает в ganache, при этом все норм в тестнете
     //
     // for (uint256 index = 0; index < _rewardSchedule.length; index++) {
@@ -125,25 +132,35 @@ contract MBaseFarm is Context {
 
     rewardSchedule = _rewardSchedule;
     holderBonusAverageRate = _holderBonusAverageRate;
-
-    stakingToken = _stakingToken;
-    earningToken = _earningToken;
-    maxEpochIndex = _rewardSchedule.length - 1;
-
-    totalDistribution = _rewardSchedule[_rewardSchedule.length - 1];
-    stakingTokenDecimalsDenominator = 10 ** ERC20(_stakingToken).decimals();
-  }
-
-  function blockNumber() public view returns (uint256) {
-    return block.number;
+    maxEpochIndex = (_rewardSchedule.length - 1).toUint128();
+    totalDistribution = _rewardSchedule[_rewardSchedule.length - 1] + 1;
   }
 
   function launchStaking() public {
     require(startedStaking == 0, "[launchStaking]: Staking is already launched");
+    require(holderBonusAverageRate.length > 0 && rewardSchedule.length > 0, "[launchStaking]: Schedule is not setted");
+    require(totalDistribution > 0, "[launchStaking]: The total distribution is too low");
 
     IERC20(earningToken).safeTransferFrom(_msgSender(), address(this), totalDistribution);
 
-    startedStaking = blockNumber();
+    startedStaking = _blockNumber();
+
+    emit StakingLaunched(startedStaking, totalDistribution);
+  }
+
+  function _blockNumber() private view returns (uint128) {
+    return block.number.toUint128();
+  }
+
+  function getState() public view returns (uint128 holderBonusStart, uint128 amount, uint128 reward, uint128 claimedReward, uint128 holderBonusDuration) {
+    address owner = _msgSender();
+
+    StakerState storage state = stakerState[owner];
+    holderBonusStart = state.holderBonusStart;
+    holderBonusDuration = calcHolderBonusDuration(holderBonusStart);
+    amount = state.amount;
+    reward = getRewards(owner);
+    claimedReward = state.claimedReward;
   }
 
   function stake(uint128 amount) public {
@@ -151,17 +168,22 @@ contract MBaseFarm is Context {
 
     address owner = _msgSender();
 
-    _stake(owner, amount);
+    // Important
+    //
+    // The "_updateHolderBonusDays" method must be called before the "_stake" method is called.
     _updateHolderBonusDays(owner, amount);
+    _stake(owner, owner, amount);
   }
 
-  function _stake(address owner, uint128 amount) private {
-    IERC20(stakingToken).safeTransferFrom(owner, address(this), amount);
+  function _stake(address owner, address from, uint128 amount) private {
+    IERC20(stakingToken).safeTransferFrom(from, address(this), amount);
 
-    FarmerState storage state = _updateStateAndStaker(owner);
+    StakerState storage state = _updateStateAndStaker(owner);
 
     state.amount += amount;
     totalStaked += amount;
+
+    emit Staked(owner, from, amount);
   }
 
   function unstake(uint128 amount) public {
@@ -173,7 +195,7 @@ contract MBaseFarm is Context {
   }
 
   function _unstake(address owner, address to, uint128 amount) private {
-    FarmerState storage state = _updateStateAndStaker(owner);
+    StakerState storage state = _updateStateAndStaker(owner);
   
     require(state.amount >= amount, "NmxStakingService: NOT_ENOUGH_STAKED");
 
@@ -191,23 +213,23 @@ contract MBaseFarm is Context {
   }
 
   function _claim(address owner, address to) private {
-    FarmerState storage state = _updateStateAndStaker(owner);
+    StakerState storage state = _updateStateAndStaker(owner);
     assert(state.reward >= state.claimedReward);
-    uint256 unclaimedReward = state.reward - state.claimedReward;
+    uint128 unclaimedReward = state.reward - state.claimedReward;
 
-    // emit Rewarded(owner, to, unclaimedReward);
     state.claimedReward += unclaimedReward;
 
     IERC20(earningToken).safeTransfer(to, unclaimedReward);
+    emit Rewarded(owner, to, unclaimedReward);
   }
 
-  function _updateStateAndStaker(address owner) private returns (FarmerState storage state) {
+  function _updateStateAndStaker(address owner) private returns (StakerState storage state) {
     updateHistoricalRewardRate();
-    state = farmerState[owner];
+    state = stakerState[owner];
 
-    uint128 reward = calcReward(historicalRewardRate, state.initialRewardRate, state.amount, state.reward);
-    state.initialRewardRate = historicalRewardRate.toUint128();
-    state.reward = reward;
+    uint128 unrewarded = calcUnrewarded(historicalRewardRate, state.initialRewardRate, state.amount);
+    state.initialRewardRate = historicalRewardRate;
+    state.reward = unrewarded + state.reward;
 
     (uint256 holderBonusReward, uint256 holderBonusRate) = calcHolderBonusByState(state);
     state.holderBonusReward = holderBonusReward;
@@ -215,27 +237,40 @@ contract MBaseFarm is Context {
   }
 
   /**
-   * for ui
+   * @dev for ui
+   * @dev 
    */
-  function getRewards(address owner) public view returns (uint256 amount) {
-    FarmerState storage state = farmerState[owner];
-    (uint256 currentSupply,) = calcSupplyByBlock(blockNumber(), totalSupply);
+  function getRewards(address owner) public view returns (uint128 amount) {
+    StakerState storage state = stakerState[owner];
+    (uint256 currentSupply,) = calcSupplyByBlock(_blockNumber(), totalSupply);
     uint256 currentHistoricalRewardRate = calcHistoricalRewardRate(currentSupply, totalStaked, historicalRewardRate);
+    uint128 unrewarded = calcUnrewarded(currentHistoricalRewardRate, state.initialRewardRate, state.amount);
 
-    amount = calcReward(currentHistoricalRewardRate, state.initialRewardRate, state.amount, state.reward);
+    amount = state.reward + unrewarded - state.claimedReward;
   }
 
   /**
    * @dev Calculates the reward based on the historical reward rate and the state of the farmer.
+   * @notice Don't use this method for getting staker reward, use the "getRewards" method instead.
+   *
+   * @param _historicalRewardRate The historical reward rate.
+   * @param _initialRewardRate The last recorded rate.
+   * @param _amount Staked amount.
+   *
+   * @return unrewarded Pending reward.
    */
-  function calcReward(uint256 _historicalRewardRate, uint256 _initialRewardRate, uint256 _amount, uint128 _reward) public view returns (uint128 currentReward) {
-    uint128 unrewarded = uint128(((_historicalRewardRate - _initialRewardRate) * _amount) / denominator / stakingTokenDecimalsDenominator);
-    currentReward = _reward + unrewarded;
+  function calcUnrewarded(uint256 _historicalRewardRate, uint256 _initialRewardRate, uint256 _amount) public pure returns (uint128 unrewarded) {
+    unrewarded = (((_historicalRewardRate - _initialRewardRate) * _amount) >> 40).toUint128();
   }
 
+  /**
+   * 
+   */
   function updateHistoricalRewardRate() public {
     uint256 currentSupply = _updateTotalSupply();
     historicalRewardRate = calcHistoricalRewardRate(currentSupply, totalStaked, historicalRewardRate);
+
+    emit UpdateHistoricalRewardRate(historicalRewardRate);
   }
 
   /**
@@ -248,18 +283,18 @@ contract MBaseFarm is Context {
    * @param _historicalRewardRate Current historical reward rate.
    *
    * @return currentHistoricalRewardRate New historical reward rate considering new unlocked tokens and amount of total staked.
-   */
-  function calcHistoricalRewardRate(uint256 _currentSupply, uint256 _totalStaked, uint256 _historicalRewardRate) public pure returns (uint256 currentHistoricalRewardRate) {
+   */ 
+  function calcHistoricalRewardRate(uint256 _currentSupply, uint128 _totalStaked, uint256 _historicalRewardRate) public pure returns (uint256 currentHistoricalRewardRate) {
     if (_currentSupply == 0 || _totalStaked == 0) {
       return _historicalRewardRate;
     }
 
-    uint256 additionalRewardRate = _currentSupply / _totalStaked;
+    uint256 additionalRewardRate = (_currentSupply << 40) / _totalStaked;
     currentHistoricalRewardRate = _historicalRewardRate + additionalRewardRate;
   }
 
   function _updateTotalSupply() private returns (uint256 currentSupply) {
-    (uint256 amount, uint256 epoch) = calcSupplyByBlock(blockNumber(), totalSupply);
+    (uint256 amount, uint128 epoch) = calcSupplyByBlock(_blockNumber(), totalSupply);
 
     currentSupply = amount;
     lastScheduleEpoch = epoch;
@@ -275,17 +310,17 @@ contract MBaseFarm is Context {
    * @return amount Additional supply by block number.
    * @return epochIndex The number of distribution schedule epoch.
    */
-  function calcSupplyByBlock(uint256 _block, uint256 _totalSupply) public view returns (uint256 amount, uint256 epochIndex) {
+  function calcSupplyByBlock(uint128 _block, uint256 _totalSupply) public view returns (uint256 amount, uint128 epochIndex) {
     require(startedStaking > 0 && _block >= startedStaking, "[calcSupplyByBlock]: The staking is not launched");
     
-    uint256 remainder;
-    uint256 duration = _block - startedStaking;
+    uint128 remainder;
+    uint128 duration = _block - startedStaking;
     epochIndex = duration / scheduleEpochDuration;
 
     if (epochIndex >= maxEpochIndex) {
       epochIndex = maxEpochIndex;
     } else {
-      remainder = duration % scheduleEpochDuration;
+      remainder = duration % scheduleEpochDuration; 
     }
   
     require(
@@ -307,21 +342,21 @@ contract MBaseFarm is Context {
 
   function getHolderBonusDuration() public view returns (uint256 holderBonusDuration) {
     address owner = _msgSender();
-    FarmerState storage state = farmerState[owner];
+    StakerState storage state = stakerState[owner];
 
     holderBonusDuration = calcHolderBonusDuration(state.holderBonusStart);
   }
 
-  function calcHolderBonusDuration(uint256 _holderBonusStart) public view returns (uint256 holderBonusDuration) {
-    holderBonusDuration = blockNumber() - _holderBonusStart;
+  function calcHolderBonusDuration(uint128 _holderBonusStart) public view returns (uint128 holderBonusDuration) {
+    holderBonusDuration = _blockNumber() - _holderBonusStart;
   }
 
   /**
    * @dev
    */
-  function calcCurrentHolderBonusRate(uint256 _duration) public view returns (uint256 rate, uint256 epochIndex) {
+  function calcCurrentHolderBonusRate(uint128 _duration) public view returns (uint256 rate, uint256 epochIndex) {
     epochIndex = _duration / holderBonusEpochDuration;
-    uint256 remainder;
+    uint128 remainder;
 
     if (epochIndex > maxEpochIndex) {
       epochIndex = maxEpochIndex;
@@ -337,30 +372,38 @@ contract MBaseFarm is Context {
   }
 
   /**
+   * @dev
+   *
    * @param _duration Duration of staking.
    * @param _holderBonusInitalRate Initial holder bonus rate.
    * @param _reward Staking reward.
-   * @notice _holderBonusInitalRate should be multiplied by `denominator`.
+   *
+   * @notice _holderBonusInitalRate must be multiplied by the "denominator".
    *
    * @return amount The amount of holder bonus reward by hold duration, initial holder bonus rate and staking reward.
    * @return currentHolderBonusRate Current holder bonus rate multiplied by `denominator`.
    */
-  function calcHolderBonus(uint256 _duration, uint256 _holderBonusInitalRate, uint256 _reward) public view returns (uint256 amount, uint256 currentHolderBonusRate) {
+  function calcHolderBonus(uint128 _duration, uint256 _holderBonusInitalRate, uint256 _reward) public view returns (uint256 amount, uint256 currentHolderBonusRate) {
     (currentHolderBonusRate,) = calcCurrentHolderBonusRate(_duration);
     amount = _reward * (currentHolderBonusRate - _holderBonusInitalRate) / denominator;
   }
 
-  function calcHolderBonusByState(FarmerState storage state) private view returns (uint256 holderBonusAmount, uint256 currentHolderBonusRate) {
+  /**
+   * @param state Staker state
+   *
+   * @return holderBonusAmount 
+   */
+  function calcHolderBonusByState(StakerState storage state) private view returns (uint256 holderBonusAmount, uint256 currentHolderBonusRate) {
     (holderBonusAmount, currentHolderBonusRate) = calcHolderBonus(
       calcHolderBonusDuration(state.holderBonusStart),
       state.holderBonusInitalRate,
-      calcReward(historicalRewardRate, state.initialRewardRate, state.amount, state.reward)
+      calcUnrewarded(historicalRewardRate, state.initialRewardRate, state.amount)
     );
   }
 
   function getHolderBonus() public view returns (uint256 holderBonusAmount) {
     address owner = _msgSender();
-    FarmerState storage state = farmerState[owner];
+    StakerState storage state = stakerState[owner];
 
     (holderBonusAmount,) = calcHolderBonusByState(state);
   }
@@ -372,7 +415,7 @@ contract MBaseFarm is Context {
   }
 
   function _claimHolderBonus(address owner, address to) private {
-    FarmerState storage state = _updateStateAndStaker(owner);
+    StakerState storage state = _updateStateAndStaker(owner);
 
     assert(state.holderBonusReward >= state.holderBonusClaimedReward);
     uint256 holderBonusUnclaimedReward = state.reward - state.claimedReward;
@@ -402,20 +445,25 @@ contract MBaseFarm is Context {
 
 
   function _resetHolderBonus(address owner) private {
-    delete farmerState[owner].holderBonusStart;
+    delete stakerState[owner].holderBonusStart;
   }
 
-  function _updateHolderBonusDays(address owner, uint256 addedAmount) private returns (uint256 duration) {
-    FarmerState storage state = farmerState[owner];
-    uint256 totalAmount = state.amount + addedAmount;
-    uint256 holderBonusDuration = calcHolderBonusDuration(state.holderBonusStart);
+  function _updateHolderBonusDays(address owner, uint128 addedAmount) private {
+    StakerState storage state = stakerState[owner];
+    uint128 holderBonusDuration = calcHolderBonusDuration(state.holderBonusStart);
 
-    if (totalAmount == 0) {
-      duration = 0;
-    } else {
-      duration = (state.amount * holderBonusDuration + addedAmount) / totalAmount;
+    state.holderBonusStart = recalcStartHolderBonus(state.amount, addedAmount, holderBonusDuration);
+  }
+
+  /**
+   * 
+   */
+  function recalcStartHolderBonus(uint128 _stakedAmount, uint128 _addedAmount, uint128 _holderBonusDuration) public view returns (uint128 holderBonusStart) {
+    uint128 totalAmount = _stakedAmount + _addedAmount;
+    holderBonusStart = _blockNumber();
+
+    if (_holderBonusDuration > 0 && _stakedAmount > 0) {
+      holderBonusStart -= (_stakedAmount * _holderBonusDuration + _addedAmount) / totalAmount;
     }
-
-    state.holderBonusStart = blockNumber() - duration;
   }
 }

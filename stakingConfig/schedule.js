@@ -5,6 +5,8 @@ const farmDurationWeeks = 106
 const divider = 112
 const rewardsInitRate = new BigNumber(0.598541785)
 const rewardIncrease = new BigNumber(1.01)
+//const epochDuration = 201600
+const epochDuration = 10
 
 const holderBonusInit = new BigNumber(0.01)
 const holderBonusIncrease = new BigNumber(0.11)
@@ -17,6 +19,7 @@ const { schedule, totalDistribution } = new Array(farmDurationWeeks).fill(0).map
     .div(divider)
     .times(rewardsInitRate)
     .times(rewardIncrease.pow(epochIndex))
+    // .times(denominator)
     .times(decimals)
 }).reduce(
   (acc, epochValue) => {
@@ -68,10 +71,15 @@ const holderBonus = holderBonusAverageRate.map(hbBn => hbBn.times(denominator).t
 holderBonus.unshift('0')
 schedule.unshift('0')
 
-console.log(holderBonus)
+console.log(`Epoch\t| Rate\t| Amount`)
+schedule.forEach((rate, index) => {
+  console.log(`${index}\t| ${rate}\t| ${index*epochDuration}\t| ${new BigNumber(rate).div(denominator).div(decimals).toFixed(2, BigNumber.ROUND_DOWN)} mBase`)
+})
 
 module.exports = {
   holderBonus,
   schedule,
   totalDistribution,
+  epochDuration,
+  denominator,
 }
