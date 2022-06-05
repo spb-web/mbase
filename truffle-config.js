@@ -15,7 +15,7 @@ module.exports = {
   networks: {
     development: {
       host: "127.0.0.1",     // Localhost (default: none)
-      port: 8545,            // Standard BSC port (default: none)
+      port: 7545,            // Standard BSC port (default: none)
       network_id: "*",       // Any network (default: none)
     },
     testnet: {
@@ -25,7 +25,7 @@ module.exports = {
       deploymentPollingInterval: 500000000,
       skipDryRun: true,
       networkCheckTimeout : 10000000, 
-      timeoutBlocks : 5000 
+      timeoutBlocks : 5000,
     },
     local: {
       provider: () => new HDWalletProvider(localMnemonic(), `http://127.0.0.1:7545`),

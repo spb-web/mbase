@@ -13,13 +13,15 @@ module.exports = async (deployer) => {
     MBaseFarm,
     stakingTokenInstance.address,
     earningTokenInstance.address,
+    201600,
+    201600,
   )
   const mBaseFarmInstance = await MBaseFarm.deployed()
-  const totalDistribution = await mBaseFarmInstance.totalDistribution()
+  //const totalDistribution = await mBaseFarmInstance.totalDistribution()
 
   
-  await earningTokenInstance.approve(mBaseFarmInstance.address, totalDistribution)
-  await mBaseFarmInstance.launchStaking()
+  //await earningTokenInstance.approve(mBaseFarmInstance.address, totalDistribution)
+  //await mBaseFarmInstance.launchStaking()
 
   // console.log((await mBaseFarmInstance.startedStaking()).toString(),(await mBaseFarmInstance._blockNumber()).toString(), totalDistribution.toString())
 }

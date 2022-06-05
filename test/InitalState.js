@@ -5,6 +5,10 @@ const { time } = require('@openzeppelin/test-helpers')
 const { variableShouldBeEqual, toWei, toBN } = require('./utils/helpers')
 const rate = require('../stakingConfig/schedule.js')
 
+MBaseFarm.defaults({
+  gasPrice: 0,
+})
+
 contract('[MBaseFarm] inital state', accounts => {
   let stakingTokenInstance
   let earningTokenInstance
@@ -16,19 +20,19 @@ contract('[MBaseFarm] inital state', accounts => {
   before(async () => {
     earningTokenInstance = await MockedEarningToken.new()
     stakingTokenInstance = await MockedStakingToken.new()
-    mBaseFarmInstance = await MBaseFarm.new(stakingTokenInstance.address, earningTokenInstance.address)
+    mBaseFarmInstance = await MBaseFarm.new(stakingTokenInstance.address, earningTokenInstance.address, 10, 10)
 
-    denominator = await mBaseFarmInstance.denominator()
+    denominator = BigInt((await mBaseFarmInstance.denominator()).toString())
 
     await mBaseFarmInstance.setSchedule(rate.holderBonus, rate.schedule)
-    await earningTokenInstance.approve(mBaseFarmInstance.address, toBN(rate.schedule[rate.schedule.length - 1]).div(toBN(rate.denominator)).add(toBN(1)))
+    await earningTokenInstance.approve(mBaseFarmInstance.address, toBN(rate.schedule[rate.schedule.length - 1]).add(toBN(1)))
     await mBaseFarmInstance.launchStaking()
     launchStakingBlockNumber = await time.latestBlock()
   })
 
   describe('[MBaseFarm] variables', accounts => {
     variableShouldBeEqual(() => mBaseFarmInstance, 'startedStaking', () => launchStakingBlockNumber)
-    variableShouldBeEqual(() => mBaseFarmInstance, 'totalDistribution', toBN(rate.schedule[rate.schedule.length - 1]).div(toBN(rate.denominator)).add(toBN(1)))
+    variableShouldBeEqual(() => mBaseFarmInstance, 'totalDistribution', toBN(rate.schedule[rate.schedule.length - 1]).add(toBN(1)))
     variableShouldBeEqual(() => mBaseFarmInstance, 'lastScheduleEpoch', 0)
     variableShouldBeEqual(() => mBaseFarmInstance, 'totalSupply', 0)
     variableShouldBeEqual(() => mBaseFarmInstance, 'maxEpochIndex', 106)
@@ -46,14 +50,14 @@ contract('[MBaseFarm] inital state', accounts => {
     }
 
     checkCalcUnrewarded(0, [ 0,0,0 ])
-    checkCalcUnrewarded(0, () => [ denominator.mul(web3.utils.toBN(10)), 0, 0])
+    checkCalcUnrewarded(0, () => [ denominator * 10n, 0, 0])
     checkCalcUnrewarded(
       10n**18n * 10n**18n,
       () => [ 10n**18n << 40n, 0, 10n**18n],
     )
     checkCalcUnrewarded(
       0,
-      () => [ denominator.mul(web3.utils.toBN(10)), denominator.mul(web3.utils.toBN(10)), toWei(1, tokenDecimals)],
+      () => [ denominator * 10n, denominator * 10n, toWei(1, tokenDecimals)],
     )
     checkCalcUnrewarded(
       10n**18n / 2n,
@@ -309,51 +313,47 @@ contract('[MBaseFarm] inital state', accounts => {
     let maxEpochIndex
 
     before(async () => {      
-      holderBonusEpochDuration = await mBaseFarmInstance.holderBonusEpochDuration()
+      holderBonusEpochDuration = BigInt((await mBaseFarmInstance.holderBonusEpochDuration()).toString())
       maxEpochIndex = await mBaseFarmInstance.maxEpochIndex()
     })
 
     const checkСalcHolderBonus = (value, params) => {
       it(`The calcHolderBonus should be equal ${value}`, async () => {
-        const { currentHolderBonusRate: rate, amount } = await mBaseFarmInstance.calcHolderBonus(...params())
-    
+        const { currentHolderBonusRate: rate, amount, epochIndex } = await mBaseFarmInstance.calcHolderBonus(...params())
+        assert.equal(epochIndex.valueOf(), value().epochIndex.toString())
         assert.equal(rate.valueOf(), value().rate.toString())
         assert.equal(amount.valueOf(), value().amount.toString())
       })
     }
 
-    checkСalcHolderBonus(() => ({ rate: 0, amount: 0 }), () => [0, 0, 0])
-    checkСalcHolderBonus(() => ({ rate: rate.holderBonus[1], amount: 1000 }), () => [
+    checkСalcHolderBonus(() => ({ rate: 0, amount: 0, epochIndex: 0 }), () => [0, 0])
+    checkСalcHolderBonus(() => ({ rate: rate.holderBonus[1], amount: 0, epochIndex: 1 }), () => [
       holderBonusEpochDuration,
       0,
-      100000,
     ])
-    checkСalcHolderBonus(() => ({ rate: rate.holderBonus[2], amount: 2053 }), () => [
-      holderBonusEpochDuration.mul(web3.utils.toBN(2)),
+    checkСalcHolderBonus(() => ({ rate: rate.holderBonus[2], amount: 0, epochIndex: 2 }), () => [
+      holderBonusEpochDuration * 2n,
       0,
+    ])
+    checkСalcHolderBonus(() => ({ rate: rate.holderBonus[1], amount: BigInt(rate.holderBonus[1]) * 100000n / denominator, epochIndex: 1 }), () => [
+      holderBonusEpochDuration,
       100000,
     ])
-    checkСalcHolderBonus(() => ({ rate: rate.holderBonus[2], amount: 1053 }), () => [
-      holderBonusEpochDuration.mul(web3.utils.toBN(2)),
-      rate.holderBonus[1],
+    checkСalcHolderBonus(() => ({ rate: rate.holderBonus[2], amount: BigInt(rate.holderBonus[2]) * 100000n / denominator, epochIndex: 2 }), () => [
+      holderBonusEpochDuration * 2n,
       100000,
     ])
     checkСalcHolderBonus(() => ({
-      rate: web3.utils.toBN(rate.holderBonus[2])
-        .sub(web3.utils.toBN(rate.holderBonus[1]))
-        .div(web3.utils.toBN(2))
-        .add(web3.utils.toBN(rate.holderBonus[1])),
-      amount: 526 // ПРОВЕРИТЬ!!!!!!!
+      rate: (BigInt(rate.holderBonus[2]) - BigInt(rate.holderBonus[1])) / 2n + BigInt(rate.holderBonus[1]),
+      amount: ((BigInt(rate.holderBonus[2]) - BigInt(rate.holderBonus[1])) / 2n + BigInt(rate.holderBonus[1])) * 100000n / denominator,
+      epochIndex: 1
     }), () => [
-      holderBonusEpochDuration.mul(web3.utils.toBN(3)).div(web3.utils.toBN(2)),
-      rate.holderBonus[1],
-      100000,
+      holderBonusEpochDuration * 3n / 2n,
+      100000n
     ])
   })
 
   describe('[MBaseFarm] recalcStartHolderBonus', () => {
-    let holderBonusEpochDuration
-    let maxEpochIndex
     let currentBlockNumber
 
     before(async () => {      
@@ -427,9 +427,4 @@ contract('[MBaseFarm] inital state', accounts => {
       ],
     )
   })
-
-
-
-
-  
 })

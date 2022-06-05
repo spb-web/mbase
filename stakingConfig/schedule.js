@@ -73,7 +73,13 @@ schedule.unshift('0')
 
 console.log(`Epoch\t| Rate\t| Amount`)
 schedule.forEach((rate, index) => {
-  console.log(`${index}\t| ${rate}\t| ${index*epochDuration}\t| ${new BigNumber(rate).div(denominator).div(decimals).toFixed(2, BigNumber.ROUND_DOWN)} mBase`)
+  console.log(`${index}\t| ${rate}\t| ${index*epochDuration}\t| ${new BigNumber(rate).div(decimals).toFixed(2, BigNumber.ROUND_DOWN)} mBase`)
+})
+
+
+console.log(`Epoch\t| Rate\t| Normalized`)
+holderBonus.forEach((rate, index) => {
+  console.log(`${index}\t| ${rate}\t| ${index*epochDuration}\t| ${new BigNumber(rate).div(denominator).toFixed(2, BigNumber.ROUND_DOWN)}`)
 })
 
 module.exports = {
