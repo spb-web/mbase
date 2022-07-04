@@ -5,6 +5,6 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 contract StakingToken is ERC20 {
   constructor() ERC20("Mars Base LP", "MBaseLP") {
-    _mint(_msgSender(), 300000000 ether);
+    _mint(_msgSender(), 500000000 ether);
   }
 }

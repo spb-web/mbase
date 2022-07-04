@@ -84,15 +84,6 @@ contract('[MBaseFarm] using', (accounts) => {
     })
   }
 
-  const checkStakingState = (values) => {
-    describe('предварительный стейт', () => {
-      variableShouldBeEqual(() => mBaseFarmInstance, 'totalSupply', () => values().totalSupply)
-      variableShouldBeEqual(() => mBaseFarmInstance, 'totalStaked', () => values().totalStaked)
-      variableShouldBeEqual(() => mBaseFarmInstance, 'historicalRewardRate', () => values().historicalRewardRate)
-      variableShouldBeEqual(() => mBaseFarmInstance, 'lastScheduleEpoch', () => values().lastScheduleEpoch)
-    })
-  }
-
   const checkStake = (account, stakeAmount, holderBonusFromBlock, description = '') => {
     describe(`[MBaseFarm] stake by account ${account} \n${description}`, () => {
       let initalAccountStakingTokenBalance
@@ -163,7 +154,11 @@ contract('[MBaseFarm] using', (accounts) => {
         const snapshotBeforeGettingRewards = await snapshot()
         await time.advanceBlockTo(blockNumber + 1n)
         pendingReward = BigInt((await mBaseFarmInstance.getRewards(account)).toString())
-        pendingHbReward = BigInt((await mBaseFarmInstance.getHolderBonusByAccount(account)).toString())
+        try {
+          pendingHbReward = BigInt((await mBaseFarmInstance.getHolderBonusByAccount(account)).toString())
+        } catch (error) {
+          console.error('!!!!', error, error.message)
+        }
         initalHolderBonusDuration = BigInt((await mBaseFarmInstance.getHolderBonusDurationByAccount(account)).toString())
         console.log('initalHolderBonusDuration', initalHolderBonusDuration, 'pendingReward', pendingReward)
         const stakerRawState = await mBaseFarmInstance.stakerState(account)
@@ -233,34 +228,10 @@ contract('[MBaseFarm] using', (accounts) => {
     })
   } 
 
-  const checkCalcSupplyByBlock = (value) => {
-    it(`The calcSupplyByBlock should be equal ${value}`, async () => {
-      const currentBlock = await time.latestBlock()
-      const totalSupply = await mBaseFarmInstance.totalSupply()
-      const { amount, epochIndex } = await mBaseFarmInstance.calcSupplyByBlock(currentBlock, totalSupply)
-  
-      assert.equal(amount.valueOf(), value().supply.toString())
-      assert.equal(epochIndex.valueOf(), value().epoch.toString())
-    })
-  }
-
-  const checkCalcHistoricalRewardRate = (value) => {
-    it(`The calcHistoricalRewardRate should be equal ${value}`, async () => {
-      const currentBlock = await time.latestBlock()
-      const totalSupply = await mBaseFarmInstance.totalSupply()
-      const { amount: currentSupply } = await mBaseFarmInstance.calcSupplyByBlock(currentBlock, totalSupply)
-      const totalStaked = await mBaseFarmInstance.totalStaked()
-      const historicalRewardRate = await mBaseFarmInstance.historicalRewardRate()
-      const rate = await mBaseFarmInstance.calcHistoricalRewardRate(currentSupply, totalStaked, historicalRewardRate)
-  
-      assert.equal(rate.valueOf(), value().toString())
-    })
-  }
-
   before(async () => {
     earningTokenInstance = await MockedEarningToken.new({from: accounts[0]})
     stakingTokenInstance = await MockedStakingToken.new({from: accounts[0]})
-    mBaseFarmInstance = await MBaseFarm.new(stakingTokenInstance.address, earningTokenInstance.address, 10, 10, {from: accounts[0]})
+    mBaseFarmInstance = await MBaseFarm.new(stakingTokenInstance.address, earningTokenInstance.address, rate.epochDuration, rate.epochDuration, {from: accounts[0]})
     account0StakingTokenBalance = BigInt((await stakingTokenInstance.balanceOf(accounts[0])).toString())
     account1StakingTokenBalance = 1000n * 10n**18n
     await stakingTokenInstance.transfer(accounts[1], account1StakingTokenBalance)
@@ -283,22 +254,6 @@ contract('[MBaseFarm] using', (accounts) => {
     // Получаем актуальное состояние стейкинга
     updateContractState()
 
-    checkClaim(accounts[0], () => ({ hb:0n }), 'Первый клейм до стейка, должно быть 0')
-
-    checkStakerState(() => ({
-      amount: 0,
-      reward: 0,
-      rawReward: 0,
-      claimedReward: 0,
-      // holderBonusStart: 0,
-      initialRewardRate: 0,
-      holderBonusDuration: 0,
-      holderBonusReward: 0,
-    }), accounts[0])
-    
-    // Получаем актуальное состояние стейкинга
-    updateContractState()
-
     checkStake(
       accounts[0],
       () => stakeAmount,
@@ -307,74 +262,45 @@ contract('[MBaseFarm] using', (accounts) => {
       'Первый стейк с аккаутна 1'
     )
 
+    describe('[MBaseFarm] blocks', () => {
+      it('get blockNumber', async () => {
+        stakedBlockNumber = BigInt((await time.latestBlock()).toString())
+        console.log('Прошло блоков до стейка', (stakedBlockNumber - launchStakingBlockNumber).toString())
+      })
+      it('get blockNumber', async () => {
+        totalSupply = BigInt((await mBaseFarmInstance.totalSupply()).toString())
+        console.log('!!!!!! totalSupply', totalSupply)
+      })
+    })
+
+    advanceBlockTo(() => launchStakingBlockNumber + rate.farmingDuration)
+
     // Получаем актуальное состояние стейкинга
     updateContractState()
+
+    checkStakerState(() => {
+      return {
+        amount: stakeAmount,
+        reward: rate.totalDistribution,
+        // Т.к. предыдущая транзакция была клеймом, то rawReward должно быть равно кол-ву заклеймленого
+        rawReward: 0,
+        claimedReward: 0,
+        initialRewardRate: historicalRewardRate,
+        holderBonusDuration: 1060,
+        holderBonusReward: rate.totalDistributionWithHb - rate.totalDistribution,
+      }
+    }, accounts[0])
 
     describe('[MBaseFarm] blocks', () => {
       it('get blockNumber', async () => {
         stakedBlockNumber = BigInt((await time.latestBlock()).toString())
         console.log('Прошло блоков до стейка', (stakedBlockNumber - launchStakingBlockNumber).toString())
       })
-    })
-
-    checkStakerState(() => ({
-      amount: stakeAmount,
-      reward: 0,
-      rawReward: 0,
-      claimedReward: 0,
-      // holderBonusStart: stakedBlockNumber,
-      initialRewardRate: 0,
-      holderBonusDuration: 0,
-      holderBonusReward: 0,
-    }), accounts[0])
-
-    checkStakingState(() => ({
-      totalSupply: getScheduleRate(stakedBlockNumber - launchStakingBlockNumber),
-      totalStaked: stakeAmount,
-      historicalRewardRate: 0,
-      lastScheduleEpoch: 0,
-    }))
-
-
-    advanceBlockTo(() => launchStakingBlockNumber + scheduleEpochDuration)
-
-    describe('предварительный стейт', () => {
-      checkCalcSupplyByBlock(() => ({
-        // сделать расчет через тотал суппли)
-        supply: getScheduleRate(scheduleEpochDuration) - getScheduleRate(stakedBlockNumber - launchStakingBlockNumber),
-        epoch: 1,
-      }))
-      checkCalcHistoricalRewardRate(() => {
-        return (
-          getScheduleRate(scheduleEpochDuration - (stakedBlockNumber - launchStakingBlockNumber)) << 40n
-        ) / stakeAmount
+      it('get blockNumber', async () => {
+        totalSupply = BigInt((await mBaseFarmInstance.totalSupply()).toString())
+        console.log('totalSupply', totalSupply)
       })
     })
-
-    // Получаем актуальное состояние стейкинга
-    updateContractState()
-
-    checkStakerState(() => {
-      const reward = ((
-          (
-            getScheduleRate(scheduleEpochDuration - (stakedBlockNumber - launchStakingBlockNumber)) << 40n
-          ) / BigInt(totalStaked.toString())
-        ) * stakeAmount
-      ) >> 40n
-
-      const hbDuration = (launchStakingBlockNumber + scheduleEpochDuration) - stakedBlockNumber
-
-      return {
-        amount: stakeAmount,
-        reward: reward,
-        rawReward: 0,
-        claimedReward: 0,
-        holderBonusDuration: hbDuration,
-        // holderBonusStart: stakedBlockNumber,
-        initialRewardRate: 0,
-        holderBonusReward: reward * getHolderBonusRate(hbDuration) / rate.denominator,
-      }
-    }, accounts[0])
 
     checkClaim(
       accounts[0],
@@ -382,82 +308,19 @@ contract('[MBaseFarm] using', (accounts) => {
         // Продолжительность стейкинга считаем на 1 блок больше текущего, т.к. +1 блок замайнится во время клейма вознаграждения
         const miningBlocks = 1n
         
-        const hbDuration = (launchStakingBlockNumber + scheduleEpochDuration) - stakedBlockNumber + miningBlocks
+        const hbDuration = 1060n
         const hb = getHolderBonusRate(hbDuration)
         
         return { hb }
       },
-      'Второй клейм, проверям что правильно зачислился бонус и вознаграждение'
+      'клейм, проверям что правильно зачислился бонус и вознаграждение'
     )
 
-    // Получаем актуальное состояние стейкинга
-    updateContractState()
-
-    checkStakerState(() => {
-      // попробовать через историю стейкинга пересчитать что бы точно убедиться что тест верный
-      const rawReward = (historicalRewardRate * stakeAmount) >> 40n
-      const holderBonus = rawReward * getHolderBonusRate(lastBlockNumber - stakedBlockNumber) / rate.denominator
-
-      return {
-        amount: stakeAmount,
-        reward: 0n,
-        // Т.к. предыдущая транзакция была клеймом, то rawReward должно быть равно кол-ву заклеймленого
-        rawReward: rawReward,
-        claimedReward: rawReward,
-        initialRewardRate: historicalRewardRate,
-        holderBonusDuration: lastBlockNumber - stakedBlockNumber,
-        holderBonusReward: 0n,
-      }
-    }, accounts[0])
-
-    //advanceBlockTo(() => lastBlockNumber + scheduleEpochDuration)
-
-    // Получаем актуальное состояние стейкинга
-    // updateContractState()
-
-    // checkStakerState(() => {
-    //   // попробовать через историю стейкинга пересчитать что бы точно убедиться что тест верный
-    //   const rawReward = ((historicalRewardRate - ) * stakeAmount) >> 40n
-    //   const holderBonus = rawReward * getHolderBonusRate(lastBlockNumber - stakedBlockNumber) / 10n**6n
-
-    //   return {
-    //     amount: stakeAmount,
-    //     reward: 0,
-    //     // Т.к. предыдущая транзакция была клеймом, то rawReward должно быть равно кол-ву заклеймленого
-    //     rawReward: rawReward,
-    //     claimedReward: rawReward,
-    //     initialRewardRate: historicalRewardRate,
-    //     holderBonusDuration: lastBlockNumber - stakedBlockNumber,
-    //     holderBonusReward: holderBonus,
-    //   }
-    // }, accounts[0])
-
-    // Получаем актуальное состояние стейкинга
-    updateContractState()
-
-    checkStake(
-      accounts[0],
-      () => stakeAmount,
-      // checkStake делает апрув и стейк, майнится 2 блока перед проверкой
-      () => ((lastBlockNumber + 2n) - stakedBlockNumber) / 2n + stakedBlockNumber,
-      "Достейк с аккаунта 1"
-    )
-
-    // Получаем актуальное состояние стейкинга
-    updateContractState()
-
-    advanceBlockTo(() => lastBlockNumber + scheduleEpochDuration)
-
-    // checkStakerState(() => ({
-    //   amount: stakeAmount * 2n,
-    //   reward: 0,
-    //   rawReward: 0,
-    //   claimedReward: 0,
-    //   holderBonusStart: stakedBlockNumber,
-    //   initialRewardRate: 0,
-    //   holderBonusDuration: 0,
-    // }), accounts[0])
-
-    return
+    describe('Update contract state', () => {
+      it('Read totalSupply', async () => {
+        totalSupply = BigInt((await mBaseFarmInstance.totalSupply()).toString())
+        console.log('\t ', 'totalSupply', totalSupply)
+      })
+    })
   })
 })

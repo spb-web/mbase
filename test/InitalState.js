@@ -9,7 +9,7 @@ MBaseFarm.defaults({
   gasPrice: 0,
 })
 
-contract('[MBaseFarm] inital state', accounts => {
+contract('[MBaseFarm] inital state', () => {
   let stakingTokenInstance
   let earningTokenInstance
   let mBaseFarmInstance
@@ -24,22 +24,22 @@ contract('[MBaseFarm] inital state', accounts => {
 
     denominator = BigInt((await mBaseFarmInstance.denominator()).toString())
 
-    await mBaseFarmInstance.setSchedule(rate.holderBonus, rate.schedule)
-    await earningTokenInstance.approve(mBaseFarmInstance.address, toBN(rate.schedule[rate.schedule.length - 1]).add(toBN(1)))
+    // await mBaseFarmInstance.setSchedule(rate.hbRate, rate.schedule)
+    await earningTokenInstance.approve(mBaseFarmInstance.address, rate.totalDistributionWithHb)
     await mBaseFarmInstance.launchStaking()
     launchStakingBlockNumber = await time.latestBlock()
   })
 
-  describe('[MBaseFarm] variables', accounts => {
+  describe('[MBaseFarm] variables', () => {
     variableShouldBeEqual(() => mBaseFarmInstance, 'startedStaking', () => launchStakingBlockNumber)
-    variableShouldBeEqual(() => mBaseFarmInstance, 'totalDistribution', toBN(rate.schedule[rate.schedule.length - 1]).add(toBN(1)))
+    variableShouldBeEqual(() => mBaseFarmInstance, 'totalDistribution', rate.totalDistributionWithHb)
     variableShouldBeEqual(() => mBaseFarmInstance, 'lastScheduleEpoch', 0)
     variableShouldBeEqual(() => mBaseFarmInstance, 'totalSupply', 0)
     variableShouldBeEqual(() => mBaseFarmInstance, 'maxEpochIndex', 106)
     variableShouldBeEqual(() => mBaseFarmInstance, 'historicalRewardRate', 0)
   })
 
-  describe('[MBaseFarm] calcUnrewarded', accounts => {  
+  describe('[MBaseFarm] calcUnrewarded', () => {  
     const checkCalcUnrewarded = (val, params) => {
       variableShouldBeEqual(
         () => mBaseFarmInstance,
@@ -80,7 +80,7 @@ contract('[MBaseFarm] inital state', accounts => {
     )
   })
 
-  describe('[MBaseFarm] calcHistoricalRewardRate', accounts => { 
+  describe('[MBaseFarm] calcHistoricalRewardRate', () => { 
     const checkCalcHistoricalRewardRate = (val, params) => {
       variableShouldBeEqual(
         () => mBaseFarmInstance,
@@ -118,15 +118,15 @@ contract('[MBaseFarm] inital state', accounts => {
   })
 
 
-  describe('[MBaseFarm] calcSupplyByBlock', accounts => { 
+  describe('[MBaseFarm] calcSupplyByBlock', () => { 
     let startedStaking
     let scheduleEpochDuration
     let maxEpochIndex
 
     before(async () => {      
-      startedStaking = await mBaseFarmInstance.startedStaking()
-      scheduleEpochDuration = await mBaseFarmInstance.scheduleEpochDuration()
-      maxEpochIndex = await mBaseFarmInstance.maxEpochIndex()
+      startedStaking = BigInt((await mBaseFarmInstance.startedStaking()).toString())
+      scheduleEpochDuration = BigInt((await mBaseFarmInstance.scheduleEpochDuration()).toString())
+      maxEpochIndex = BigInt((await mBaseFarmInstance.maxEpochIndex()).toString())
     })
 
     const checkCalcSupplyByBlock = (value, params) => {
@@ -151,7 +151,7 @@ contract('[MBaseFarm] inital state', accounts => {
       () => ({ supply: rate.schedule[1], epoch: 1 }),
       () => [
         // blockNumber
-        startedStaking.add(scheduleEpochDuration),
+        startedStaking + scheduleEpochDuration,
         // totalSupply
         0,
       ],
@@ -160,69 +160,59 @@ contract('[MBaseFarm] inital state', accounts => {
       () => ({ supply: rate.schedule[2], epoch: 2 }),
       () => [
         // blockNumber
-        startedStaking.add(scheduleEpochDuration.mul(web3.utils.toBN(2))),
+        startedStaking + (scheduleEpochDuration * 2n),
         // totalSupply
         0,
       ],
     )
     checkCalcSupplyByBlock(
-      () => ({ supply: web3.utils.toBN(rate.schedule[1]).div(web3.utils.toBN(2)), epoch: 0 }),
+      () => ({ supply: rate.schedule[1] / 2n, epoch: 0 }),
       () => [
         // blockNumber
-        startedStaking.add(scheduleEpochDuration.div(web3.utils.toBN(2))),
+        startedStaking + (scheduleEpochDuration / 2n),
         // totalSupply
         0,
       ],
     )
     checkCalcSupplyByBlock(
       () => ({ 
-        supply: web3.utils.toBN(rate.schedule[2])
-          .sub(web3.utils.toBN(rate.schedule[1]))
-          .div(web3.utils.toBN(2))
-          .add(web3.utils.toBN(rate.schedule[1])),
-        epoch: 1,
+        supply: (rate.schedule[2] - rate.schedule[1]) / 2n + rate.schedule[1],
+        epoch: 1n,
       }),
       () => [
         // blockNumber
-        startedStaking
-          .add(scheduleEpochDuration.div(web3.utils.toBN(2)))
-          .add(scheduleEpochDuration),
+        startedStaking + (scheduleEpochDuration / 2n) + scheduleEpochDuration,
         // totalSupply
-        0,
+        0n,
       ],
     )
     checkCalcSupplyByBlock(
-      () => ({ supply: web3.utils.toBN(rate.schedule[maxEpochIndex.toNumber()]), epoch: maxEpochIndex }),
+      () => ({ supply: rate.schedule[Number(maxEpochIndex)], epoch: maxEpochIndex }),
       () => [
         // blockNumber
-        startedStaking.add(scheduleEpochDuration.mul(maxEpochIndex)),
+        startedStaking + (scheduleEpochDuration * maxEpochIndex),
         // totalSupply
-        0,
-      ],
-    )
-    // НЕДОПРОВЕРЕНО
-    checkCalcSupplyByBlock(
-      () => ({ supply: web3.utils.toBN(rate.schedule[maxEpochIndex.toNumber()]), epoch: maxEpochIndex }),
-      () => [
-        // blockNumber
-        startedStaking
-          .add(scheduleEpochDuration.mul(maxEpochIndex))
-          .add(scheduleEpochDuration.div(web3.utils.toBN(2))),
-        // totalSupply
-        0,
+        0n,
       ],
     )
     // НЕДОПРОВЕРЕНО
     checkCalcSupplyByBlock(
-      () => ({ supply: web3.utils.toBN(rate.schedule[maxEpochIndex.toNumber()]), epoch: maxEpochIndex }),
+      () => ({ supply: rate.schedule[Number(maxEpochIndex)], epoch: maxEpochIndex }),
       () => [
         // blockNumber
-        startedStaking
-          .add(scheduleEpochDuration.mul(maxEpochIndex))
-          .add(scheduleEpochDuration)
-          .add(scheduleEpochDuration),
+        startedStaking + (scheduleEpochDuration * maxEpochIndex) + (scheduleEpochDuration / 2n),
         // totalSupply
-        0,
+        0n,
+      ],
+    )
+    // НЕДОПРОВЕРЕНО
+    checkCalcSupplyByBlock(
+      () => ({ supply: rate.schedule[Number(maxEpochIndex)], epoch: maxEpochIndex }),
+      () => [
+        // blockNumber
+        startedStaking + scheduleEpochDuration * maxEpochIndex + scheduleEpochDuration + scheduleEpochDuration,
+        // totalSupply
+        0n,
       ],
     )
     // НЕДОПРОВЕРЕНО
@@ -230,39 +220,31 @@ contract('[MBaseFarm] inital state', accounts => {
       () => ({ supply: 0, epoch: maxEpochIndex }),
       () => [
         // blockNumber
-        startedStaking
-          .add(scheduleEpochDuration.mul(maxEpochIndex))
-          .add(scheduleEpochDuration)
-          .add(scheduleEpochDuration),
+        startedStaking + scheduleEpochDuration * maxEpochIndex + scheduleEpochDuration + scheduleEpochDuration,
         // totalSupply
-        rate.schedule[maxEpochIndex.toNumber()],
+        rate.schedule[Number(maxEpochIndex)],
       ],
     )
     checkCalcSupplyByBlock(
       () => ({ 
-        supply: web3.utils.toBN(rate.schedule[2])
-          .sub(web3.utils.toBN(rate.schedule[1]))
-          .div(web3.utils.toBN(2)),
+        supply: (rate.schedule[2] - rate.schedule[1]) / 2n,
         epoch: 1,
       }),
       () => [
         // blockNumber
-        startedStaking
-          .add(scheduleEpochDuration.div(web3.utils.toBN(2)))
-          .add(scheduleEpochDuration),
+        startedStaking + (scheduleEpochDuration / 2n) + scheduleEpochDuration,
         // totalSupply
         rate.schedule[1],
       ],
     )
   })
 
-  describe('[MBaseFarm] calcCurrentHolderBonusRate', accounts => {
+  describe('[MBaseFarm] calcCurrentHolderBonusRate', () => {
     let holderBonusEpochDuration
-    let maxEpochIndex
 
     before(async () => {      
-      holderBonusEpochDuration = await mBaseFarmInstance.holderBonusEpochDuration()
-      maxEpochIndex = await mBaseFarmInstance.maxEpochIndex()
+      holderBonusEpochDuration = BigInt((await mBaseFarmInstance.holderBonusEpochDuration()).toString())
+      maxEpochIndex = BigInt((await mBaseFarmInstance.maxEpochIndex()).toString())
     })
 
     const checkСalcCurrentHolderBonusRate = (value, params) => {
@@ -277,36 +259,31 @@ contract('[MBaseFarm] inital state', accounts => {
     checkСalcCurrentHolderBonusRate(() => ({ rate: 0, epoch: 0 }), () => 0)
     checkСalcCurrentHolderBonusRate(
       () => ({ 
-        rate: web3.utils.toBN(rate.holderBonus[1]).mul(holderBonusEpochDuration.div(web3.utils.toBN(3))).div(holderBonusEpochDuration),
+        rate: rate.hbRate[1] * (holderBonusEpochDuration / 3n) / holderBonusEpochDuration,
         epoch: 0
       }),
-      () => holderBonusEpochDuration.div(web3.utils.toBN(3))
+      () => holderBonusEpochDuration / 3n
     )
     checkСalcCurrentHolderBonusRate(
       () => ({ 
-        rate: web3.utils.toBN(rate.holderBonus[1]).div(web3.utils.toBN(2)),
+        rate: rate.hbRate[1] / 2n,
         epoch: 0,
       }),
-      () => holderBonusEpochDuration.div(web3.utils.toBN(2)),
+      () => holderBonusEpochDuration / 2n,
     )
-    checkСalcCurrentHolderBonusRate(() => ({ rate: web3.utils.toBN(rate.holderBonus[1]), epoch: 1 }), () => holderBonusEpochDuration)
+    checkСalcCurrentHolderBonusRate(() => ({ rate: rate.hbRate[1], epoch: 1 }), () => holderBonusEpochDuration)
     checkСalcCurrentHolderBonusRate(() => (
-      { rate: rate.holderBonus[2], epoch: 2 }),
-      () => holderBonusEpochDuration.mul(web3.utils.toBN(2)),
+      { rate: rate.hbRate[2], epoch: 2 }),
+      () => holderBonusEpochDuration * 2n,
     )
     checkСalcCurrentHolderBonusRate(() => (
       { 
-        rate: web3.utils.toBN(rate.holderBonus[2])
-          .sub(web3.utils.toBN(rate.holderBonus[1]))
-          .div(web3.utils.toBN(2))
-          .add(web3.utils.toBN(rate.holderBonus[1])),
-        epoch: 1
+        rate: (rate.hbRate[2] - rate.hbRate[1]) / 2n + rate.hbRate[1],
+        epoch: 1,
       }),
-      () => holderBonusEpochDuration.mul(web3.utils.toBN(3)).div(web3.utils.toBN(2)),
+      () => holderBonusEpochDuration * 3n / 2n
     )
   })
-
-
 
   describe('[MBaseFarm] calcHolderBonus', accounts => {
     let holderBonusEpochDuration
@@ -314,39 +291,35 @@ contract('[MBaseFarm] inital state', accounts => {
 
     before(async () => {      
       holderBonusEpochDuration = BigInt((await mBaseFarmInstance.holderBonusEpochDuration()).toString())
-      maxEpochIndex = await mBaseFarmInstance.maxEpochIndex()
+      maxEpochIndex = BigInt((await mBaseFarmInstance.maxEpochIndex()).toString())
     })
 
     const checkСalcHolderBonus = (value, params) => {
       it(`The calcHolderBonus should be equal ${value}`, async () => {
-        const { currentHolderBonusRate: rate, amount, epochIndex } = await mBaseFarmInstance.calcHolderBonus(...params())
-        assert.equal(epochIndex.valueOf(), value().epochIndex.toString())
-        assert.equal(rate.valueOf(), value().rate.toString())
-        assert.equal(amount.valueOf(), value().amount.toString())
+        const hbRewards = await mBaseFarmInstance.calcHolderBonus(...params())
+        assert.equal(hbRewards.valueOf(), value().amount.toString())
       })
     }
 
-    checkСalcHolderBonus(() => ({ rate: 0, amount: 0, epochIndex: 0 }), () => [0, 0])
-    checkСalcHolderBonus(() => ({ rate: rate.holderBonus[1], amount: 0, epochIndex: 1 }), () => [
+    checkСalcHolderBonus(() => ({ amount: 0 }), () => [0, 0])
+    checkСalcHolderBonus(() => ({ amount: 0 }), () => [
       holderBonusEpochDuration,
       0,
     ])
-    checkСalcHolderBonus(() => ({ rate: rate.holderBonus[2], amount: 0, epochIndex: 2 }), () => [
+    checkСalcHolderBonus(() => ({ amount: 0 }), () => [
       holderBonusEpochDuration * 2n,
       0,
     ])
-    checkСalcHolderBonus(() => ({ rate: rate.holderBonus[1], amount: BigInt(rate.holderBonus[1]) * 100000n / denominator, epochIndex: 1 }), () => [
+    checkСalcHolderBonus(() => ({ amount: rate.hbRate[1] * 100000n / denominator }), () => [
       holderBonusEpochDuration,
       100000,
     ])
-    checkСalcHolderBonus(() => ({ rate: rate.holderBonus[2], amount: BigInt(rate.holderBonus[2]) * 100000n / denominator, epochIndex: 2 }), () => [
+    checkСalcHolderBonus(() => ({ amount: rate.hbRate[2] * 100000n / denominator }), () => [
       holderBonusEpochDuration * 2n,
       100000,
     ])
     checkСalcHolderBonus(() => ({
-      rate: (BigInt(rate.holderBonus[2]) - BigInt(rate.holderBonus[1])) / 2n + BigInt(rate.holderBonus[1]),
-      amount: ((BigInt(rate.holderBonus[2]) - BigInt(rate.holderBonus[1])) / 2n + BigInt(rate.holderBonus[1])) * 100000n / denominator,
-      epochIndex: 1
+      amount: ((rate.hbRate[2] - rate.hbRate[1]) / 2n + rate.hbRate[1]) * 100000n / denominator,
     }), () => [
       holderBonusEpochDuration * 3n / 2n,
       100000n
@@ -357,8 +330,8 @@ contract('[MBaseFarm] inital state', accounts => {
     let currentBlockNumber
 
     before(async () => {      
-      holderBonusEpochDuration = await mBaseFarmInstance.holderBonusEpochDuration()
-      maxEpochIndex = await mBaseFarmInstance.maxEpochIndex()
+      holderBonusEpochDuration = BigInt((await mBaseFarmInstance.holderBonusEpochDuration()).toString())
+      maxEpochIndex = BigInt((await mBaseFarmInstance.maxEpochIndex()).toString())
       currentBlockNumber = await time.latestBlock()
     })
 

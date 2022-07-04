@@ -9,8 +9,7 @@
     "local": "truffle migrate --network local",
     "verify": "truffle run verify",
     "test": "truffle test --network development --require mocha-steps",
-    "doc": "node docify.js",
-    "e": "hardhat docgen"
+    "doc": "hardhat docgen"
   },
   "dependencies": {},
   "devDependencies": {

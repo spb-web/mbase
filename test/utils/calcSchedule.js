@@ -23,8 +23,8 @@ const getScheduleRate = (duration) => {
 
 
 const getHolderBonusRateItem = (epoch) => {
-  if (epoch >= 0n && epoch < BigInt(rate.holderBonus.length)) {
-    return BigInt(rate.holderBonus[epoch])
+  if (epoch >= 0n && epoch < BigInt(rate.hbRate.length)) {
+    return rate.hbRate[epoch]
   }
 
   return 0n

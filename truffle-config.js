@@ -34,6 +34,7 @@ module.exports = {
       deploymentPollingInterval: 1000,
       skipDryRun: true,
       timeoutBlocks: 4000 , 
+      timeout: 100000,
       networkCheckTimeout : 100,
     },
     bsc: {
